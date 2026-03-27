@@ -229,6 +229,85 @@ export default definePluginEntry({
       },
     });
 
+    // ── workflow_claim ──────────────────────────────────────────────
+    api.registerTool({
+      name: "workflow_claim",
+      description: [
+        "Atomically claim a pending work item in a stage for exclusive processing.",
+        "Picks the oldest unclaimed item (or one whose lease has expired) and marks it in_progress.",
+        "Returns null if no item is available.",
+        "Use this instead of workflow_query + manual status updates when multiple agents work concurrently.",
+      ].join(" "),
+      parameters: Type.Object({
+        workflow: Type.String({ description: "Workflow name" }),
+        stage: Type.String({
+          description: "Stage to claim from (e.g. 'inbox', 'backlog')",
+        }),
+        agent_id: Type.String({
+          description:
+            "Unique identifier for the claiming agent (e.g. run ID or agent name)",
+        }),
+        lease_seconds: Type.Optional(
+          Type.Number({
+            description:
+              "How long in seconds to hold the lease (default 300 / 5 min). If the agent doesn't complete within this window, another agent may reclaim the item.",
+            minimum: 1,
+          })
+        ),
+      }),
+      async execute(_id, params) {
+        try {
+          const reg = getRegistry();
+          const result = reg.claim(
+            params.workflow,
+            params.stage,
+            params.agent_id,
+            params.lease_seconds
+          );
+
+          if (!result) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    claimed: false,
+                    message: `No pending items available in "${params.workflow}" at stage "${params.stage}".`,
+                  }),
+                },
+              ],
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    claimed: true,
+                    item_name: result.item.name,
+                    stage: result.item.current_stage,
+                    artifact_path: result.artifact_path,
+                    lease_expires_at: result.lease_expires_at,
+                    metadata: result.item.metadata,
+                    message: `Claimed "${result.item.name}". Read/write artifact at: ${result.artifact_path}. Lease expires: ${result.lease_expires_at}`,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        } catch (err: any) {
+          return {
+            content: [{ type: "text", text: `Error: ${err.message}` }],
+            isError: true,
+          };
+        }
+      },
+    });
+
     // ── workflow_advance ────────────────────────────────────────────
     api.registerTool({
       name: "workflow_advance",
