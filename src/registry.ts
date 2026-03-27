@@ -30,8 +30,16 @@ export interface WorkItem {
   status: ItemStatus;
   artifact_path: string;
   metadata: Record<string, unknown>;
+  claimed_by: string | null;
+  lease_expires_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ClaimResult {
+  item: WorkItem;
+  artifact_path: string;
+  lease_expires_at: string;
 }
 
 export interface StageHistoryEntry {
@@ -254,6 +262,70 @@ export class WorkflowRegistry {
   }
 
   /**
+   * Atomically claim a pending item in a stage for exclusive processing.
+   *
+   * Picks the oldest unclaimed item (or one whose lease has expired) and
+   * marks it `in_progress` with a lease expiry. Returns null if nothing
+   * is available.
+   *
+   * @param workflow   Workflow name
+   * @param stage      Stage to claim from
+   * @param agentId    Identifier for the claiming agent (e.g. agent run ID)
+   * @param leaseSecs  How many seconds the lease is valid (default 300 / 5 min)
+   */
+  claim(
+    workflow: string,
+    stage: string,
+    agentId: string,
+    leaseSecs: number = 300
+  ): ClaimResult | null {
+    const claimTx = this.db.transaction(() => {
+      // Find oldest item that is either pending, or in_progress with an expired lease
+      const row = this.db
+        .prepare(
+          `SELECT * FROM work_items
+           WHERE workflow = ?
+             AND current_stage = ?
+             AND (
+               status = 'pending'
+               OR (status = 'in_progress'
+                   AND lease_expires_at IS NOT NULL
+                   AND lease_expires_at < CURRENT_TIMESTAMP)
+             )
+           ORDER BY updated_at ASC
+           LIMIT 1`
+        )
+        .get(workflow, stage) as any;
+
+      if (!row) return null;
+
+      const leaseExpiresAt = new Date(
+        Date.now() + leaseSecs * 1000
+      ).toISOString();
+
+      this.db
+        .prepare(
+          `UPDATE work_items
+           SET status = 'in_progress',
+               claimed_by = ?,
+               lease_expires_at = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`
+        )
+        .run(agentId, leaseExpiresAt, row.id);
+
+      const updated = this.getById(row.id)!;
+      return {
+        item: updated,
+        artifact_path: updated.artifact_path,
+        lease_expires_at: leaseExpiresAt,
+      } satisfies ClaimResult;
+    });
+
+    return claimTx() as ClaimResult | null;
+  }
+
+  /**
    * Get the full stage history for an item.
    */
   getHistory(workflow: string, itemName: string): StageHistoryEntry[] {
@@ -286,15 +358,17 @@ export class WorkflowRegistry {
   private migrate(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS work_items (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        workflow      TEXT NOT NULL,
-        name          TEXT NOT NULL,
-        current_stage TEXT NOT NULL,
-        status        TEXT NOT NULL DEFAULT 'pending',
-        artifact_path TEXT NOT NULL,
-        metadata      TEXT NOT NULL DEFAULT '{}',
-        created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow        TEXT NOT NULL,
+        name            TEXT NOT NULL,
+        current_stage   TEXT NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        artifact_path   TEXT NOT NULL,
+        metadata        TEXT NOT NULL DEFAULT '{}',
+        claimed_by      TEXT,
+        lease_expires_at TEXT,
+        created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE INDEX IF NOT EXISTS idx_items_workflow_stage
@@ -302,6 +376,9 @@ export class WorkflowRegistry {
 
       CREATE INDEX IF NOT EXISTS idx_items_name
         ON work_items(workflow, name);
+
+      CREATE INDEX IF NOT EXISTS idx_items_lease
+        ON work_items(workflow, current_stage, status, lease_expires_at);
 
       CREATE TABLE IF NOT EXISTS stage_history (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,6 +393,20 @@ export class WorkflowRegistry {
       CREATE INDEX IF NOT EXISTS idx_history_item
         ON stage_history(item_id);
     `);
+
+    // Backfill columns added after initial release (safe to run on existing DBs)
+    const existingCols = (
+      this.db.prepare("PRAGMA table_info(work_items)").all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name);
+
+    if (!existingCols.includes("claimed_by")) {
+      this.db.exec("ALTER TABLE work_items ADD COLUMN claimed_by TEXT");
+    }
+    if (!existingCols.includes("lease_expires_at")) {
+      this.db.exec("ALTER TABLE work_items ADD COLUMN lease_expires_at TEXT");
+    }
   }
 
   /**

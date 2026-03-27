@@ -35,17 +35,15 @@ export interface WorkflowConfig {
 
 // ─── Loader ──────────────────────────────────────────────────────────
 
-const SEARCH_DIRS = [
-  process.env.WORKFLOW_DIR,
-  join(process.cwd(), "workflows"),
-  join(homedir(), ".openclaw", "workflows"),
-].filter(Boolean) as string[];
-
 /**
  * Find all directories that contain workflow YAML files.
  */
 function getWorkflowDirs(): string[] {
-  return SEARCH_DIRS.filter((dir) => existsSync(dir));
+  return [
+    process.env.WORKFLOW_DIR,
+    join(process.cwd(), "workflows"),
+    join(homedir(), ".openclaw", "workflows"),
+  ].filter((dir): dir is string => dir !== undefined && existsSync(dir));
 }
 
 /**
