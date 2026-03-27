@@ -1,0 +1,6 @@
+{
+  "name": "openclaw-workflow-directory",
+  "version": "0.1.0",
+  "description": "Workflow directory — agents discover artifact paths without hardcoding",
+  "skills": ["skills/workflow-directory"]
+}

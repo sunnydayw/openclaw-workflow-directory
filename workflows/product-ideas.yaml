@@ -1,0 +1,27 @@
+# Example: Product Ideas Pipeline
+#
+# Discord agent → backlog → research agent → researched → summary cron → summarized
+#
+# Place this file in ~/.openclaw/workflows/ or your workspace's workflows/ dir.
+
+workflow: product-ideas
+base_path: /workspace/ideas
+
+stages:
+  - name: backlog
+    path: "{base_path}/backlog"
+    naming: "{date}-{slug}.md"
+
+  - name: researched
+    path: "{base_path}/researched"
+    naming: "{date}-{slug}-research.md"
+
+  - name: summarized
+    path: "{base_path}/summarized"
+    naming: "weekly-summary-{date}.md"
+
+transitions:
+  - from: backlog
+    to: researched
+  - from: researched
+    to: summarized

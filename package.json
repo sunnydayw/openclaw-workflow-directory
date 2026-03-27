@@ -1,0 +1,47 @@
+{
+  "name": "openclaw-workflow-directory",
+  "version": "0.1.0",
+  "description": "Workflow directory plugin for OpenClaw — agents discover artifact paths at runtime instead of hardcoding them",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "openclaw": {
+    "extensions": ["./dist/index.js"]
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "workflow",
+    "agent",
+    "automation"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0",
+    "better-sqlite3": "^11.0.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=0.1.0"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "openclaw.plugin.json",
+    "README.md"
+  ]
+}
