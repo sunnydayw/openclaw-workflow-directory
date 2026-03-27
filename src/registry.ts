@@ -290,7 +290,7 @@ export class WorkflowRegistry {
                status = 'pending'
                OR (status = 'in_progress'
                    AND lease_expires_at IS NOT NULL
-                   AND lease_expires_at < CURRENT_TIMESTAMP)
+                   AND datetime(lease_expires_at) < datetime('now'))
              )
            ORDER BY updated_at ASC
            LIMIT 1`

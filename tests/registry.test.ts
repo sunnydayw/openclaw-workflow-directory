@@ -171,4 +171,69 @@ describe("WorkflowRegistry", () => {
       registry.register("test-pipeline", "nonexistent", "fail")
     ).toThrow(/not found/);
   });
+
+  // ── workflow_claim ──────────────────────────────────────────────────
+
+  it("claim returns an item and marks it in_progress", () => {
+    registry.register("test-pipeline", "inbox", "claimable");
+
+    const result = registry.claim("test-pipeline", "inbox", "agent-1");
+
+    expect(result).not.toBeNull();
+    expect(result!.item.name).toBe("claimable");
+    expect(result!.item.status).toBe("in_progress");
+    expect(result!.item.claimed_by).toBe("agent-1");
+    expect(result!.artifact_path).toContain("inbox");
+    expect(new Date(result!.lease_expires_at).getTime()).toBeGreaterThan(
+      Date.now()
+    );
+  });
+
+  it("claim returns null when no pending items exist", () => {
+    const result = registry.claim("test-pipeline", "inbox", "agent-1");
+    expect(result).toBeNull();
+  });
+
+  it("claim picks the oldest pending item when multiple exist", () => {
+    registry.register("test-pipeline", "inbox", "first");
+    registry.register("test-pipeline", "inbox", "second");
+
+    const result = registry.claim("test-pipeline", "inbox", "agent-1");
+    expect(result!.item.name).toBe("first");
+  });
+
+  it("claim skips in_progress items with a valid lease", () => {
+    registry.register("test-pipeline", "inbox", "locked");
+    // Claim it so it's in_progress with a live lease
+    registry.claim("test-pipeline", "inbox", "agent-1", 300);
+
+    // A second claim on the same empty-after-lock stage returns null
+    const result = registry.claim("test-pipeline", "inbox", "agent-2", 300);
+    expect(result).toBeNull();
+  });
+
+  it("claim reclaims items whose lease has expired", () => {
+    registry.register("test-pipeline", "inbox", "expired");
+    // Claim it, then manually backdate the lease so it's clearly expired
+    const first = registry.claim("test-pipeline", "inbox", "agent-1", 300);
+    (registry as any).db
+      .prepare(
+        `UPDATE work_items SET lease_expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?`
+      )
+      .run(first!.item.id);
+
+    const result = registry.claim("test-pipeline", "inbox", "agent-2", 300);
+    expect(result).not.toBeNull();
+    expect(result!.item.claimed_by).toBe("agent-2");
+  });
+
+  it("claim respects custom lease_seconds", () => {
+    registry.register("test-pipeline", "inbox", "short-lease");
+    const result = registry.claim("test-pipeline", "inbox", "agent-1", 60);
+
+    const expiresIn =
+      new Date(result!.lease_expires_at).getTime() - Date.now();
+    expect(expiresIn).toBeGreaterThan(55_000);
+    expect(expiresIn).toBeLessThan(65_000);
+  });
 });
