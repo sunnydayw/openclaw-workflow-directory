@@ -108,6 +108,7 @@ Use the workflow_advance tool to move completed items to the next stage.
 | `workflow_register` | Register a new work item | `workflow`, `stage`, `name`, optional `metadata` |
 | `workflow_query` | Find items at a stage | `workflow`, `stage`, optional `status` filter |
 | `workflow_advance` | Move item to next stage + get output path | `workflow`, `item_name`, optional `to_stage` |
+| `workflow_claim` | Atomically claim one pending item for exclusive processing | `workflow`, `stage`, `agent_id`, optional `lease_seconds` |
 
 ## Development
 
